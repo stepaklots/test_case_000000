@@ -1,0 +1,94 @@
+name: probation-campaign-reports
+
+volumes:
+  postgres-db:
+    name: 'probation-postgres-db'
+
+services:
+  db:
+    container_name: postgres-db
+    image: postgres:14-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: passw0rd
+      POSTGRES_DB: campaign-reports-db
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres-db:/var/lib/postgresql/data
+    networks:
+      - campaign-reports-app
+
+  migrations:
+    container_name: db-migrations
+    image: node:20-alpine
+    working_dir: /usr/src/app
+    volumes:
+      - .:/usr/src/app
+      - /usr/src/app/node_modules
+    command: >
+      sh -c "npm install && npm run migration:run"
+    env_file:
+      - .env
+    environment:
+      - DB_HOST=db
+    depends_on:
+      - db
+    networks:
+      - campaign-reports-app
+
+  api:
+    container_name: api
+    image: node:20-alpine
+    working_dir: /usr/src/app
+    volumes:
+      - .:/usr/src/app
+      - /usr/src/app/node_modules
+    command: >
+      sh -c "npm install && npm run start:dev:api"
+    ports:
+      - '8080:8080'
+    env_file:
+      - .env
+    environment:
+      - DB_HOST=db
+    depends_on:
+      db:
+        condition: service_healthy
+      migrations:
+        condition: service_completed_successfully
+    networks:
+      - campaign-reports-app
+
+  worker:
+    container_name: worker
+    image: node:20-alpine
+    working_dir: /usr/src/app
+    volumes:
+      - .:/usr/src/app
+      - /usr/src/app/node_modules
+    command: >
+      sh -c "npm install && npm run start:dev:worker"
+    ports:
+      - '9090:9090'
+    env_file:
+      - .env
+    environment:
+      - DB_HOST=db
+    depends_on:
+      db:
+        condition: service_healthy
+      migrations:
+        condition: service_completed_successfully
+    networks:
+      - campaign-reports-app
+
+networks:
+  campaign-reports-app:
+    driver: bridge
